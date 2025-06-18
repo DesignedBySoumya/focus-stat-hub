@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { useWindowSize } from '@/hooks/useWindowSize';
 
 interface DateTimelineProps {
   selectedDate: string;
@@ -7,6 +8,8 @@ interface DateTimelineProps {
 }
 
 export function DateTimeline({ selectedDate, onDateSelect }: DateTimelineProps) {
+  const { width } = useWindowSize();
+  
   const generateDates = () => {
     const dates = [];
     const today = new Date();
@@ -35,12 +38,19 @@ export function DateTimeline({ selectedDate, onDateSelect }: DateTimelineProps) 
     return dates;
   };
 
-  const dates = generateDates();
+  const getVisibleDates = () => {
+    const dates = generateDates();
+    if (width >= 1024) return dates; // desktop - show all
+    if (width >= 768) return dates.slice(0, 12); // tablet
+    return dates.slice(0, 7); // mobile
+  };
+
+  const visibleDates = getVisibleDates();
 
   return (
     <div className="px-6 py-4">
       <div className="flex items-center space-x-1 overflow-x-auto scrollbar-hide">
-        {dates.map((dateInfo, index) => (
+        {visibleDates.map((dateInfo, index) => (
           <button
             key={index}
             onClick={() => onDateSelect(dateInfo.date)}

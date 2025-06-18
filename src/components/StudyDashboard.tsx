@@ -1,30 +1,86 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Settings, Share, Music, Maximize2, RotateCcw, Play, Pause, SkipForward } from 'lucide-react';
 import { DateTimeline } from './DateTimeline';
+import { SettingsModal } from './SettingsModal';
 
 export default function StudyDashboard() {
   const [selectedDate, setSelectedDate] = useState('18');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(25 * 60); // 25 minutes in seconds
-  const [totalTimeSpent, setTotalTimeSpent] = useState(3660); // 1h 1m in seconds
+  const [timeLeft, setTimeLeft] = useState(25 * 60);
+  const [totalTimeSpent, setTotalTimeSpent] = useState(3660);
   const [todayTimeSpent, setTodayTimeSpent] = useState(0);
   const [partsCompleted, setPartsCompleted] = useState(5);
   const [totalParts] = useState(16);
   const [sessionCount, setSessionCount] = useState(4);
+  const [completedSessions, setCompletedSessions] = useState(0);
+  const [isBreak, setIsBreak] = useState(false);
+  const [resetCount, setResetCount] = useState(0);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  
+  // Settings
+  const [pomodoroLength, setPomodoroLength] = useState(25);
+  const [shortBreakLength, setShortBreakLength] = useState(5);
+  const [longBreakLength, setLongBreakLength] = useState(20);
+  const [usePomodoroMode, setUsePomodoroMode] = useState(true);
+  
+  const audioRef = useRef<HTMLAudioElement>(null);
 
-  // Timer effect
+  // Timer effect with break logic
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isPlaying && timeLeft > 0) {
       interval = setInterval(() => {
-        setTimeLeft((time) => time - 1);
-        setTodayTimeSpent((time) => time + 1);
-        setTotalTimeSpent((time) => time + 1);
+        setTimeLeft((time) => {
+          if (time <= 1) {
+            // Timer completed
+            if (usePomodoroMode) {
+              if (isBreak) {
+                // Break finished, start new session
+                setIsBreak(false);
+                setIsPlaying(false);
+                return pomodoroLength * 60;
+              } else {
+                // Session finished, start break
+                const newCompletedSessions = completedSessions + 1;
+                setCompletedSessions(newCompletedSessions);
+                setIsBreak(true);
+                setIsPlaying(false);
+                
+                // Every 3 sessions = long break, otherwise short break
+                const breakLength = newCompletedSessions % 3 === 0 ? longBreakLength : shortBreakLength;
+                return breakLength * 60;
+              }
+            }
+            return 0;
+          }
+          return time - 1;
+        });
+        
+        if (!isBreak) {
+          setTodayTimeSpent((time) => time + 1);
+          setTotalTimeSpent((time) => time + 1);
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, timeLeft]);
+  }, [isPlaying, timeLeft, isBreak, completedSessions, usePomodoroMode, pomodoroLength, shortBreakLength, longBreakLength]);
+
+  // Music and tab visibility
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (audioRef.current && isMusicPlaying) {
+        if (document.hidden) {
+          audioRef.current.pause();
+        } else {
+          audioRef.current.play();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isMusicPlaying]);
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -59,21 +115,69 @@ export default function StudyDashboard() {
   };
 
   const resetTimer = () => {
-    setTimeLeft(25 * 60);
+    const newResetCount = resetCount + 1;
+    setResetCount(newResetCount);
+    
+    if (newResetCount >= 2) {
+      setSessionCount(0);
+      setCompletedSessions(0);
+      setResetCount(0);
+    }
+    
+    setTimeLeft(isBreak ? (completedSessions % 3 === 0 ? longBreakLength : shortBreakLength) * 60 : pomodoroLength * 60);
     setIsPlaying(false);
   };
 
   const skipSession = () => {
-    setTimeLeft(25 * 60);
+    if (isBreak) {
+      setIsBreak(false);
+      setTimeLeft(pomodoroLength * 60);
+    } else {
+      const newCompletedSessions = completedSessions + 1;
+      setCompletedSessions(newCompletedSessions);
+      setIsBreak(true);
+      const breakLength = newCompletedSessions % 3 === 0 ? longBreakLength : shortBreakLength;
+      setTimeLeft(breakLength * 60);
+    }
     setSessionCount(prev => prev + 1);
     setIsPlaying(false);
   };
 
-  const progress = ((25 * 60 - timeLeft) / (25 * 60)) * 100;
+  const handleFullscreen = () => {
+    document.documentElement.requestFullscreen();
+    setIsPlaying(true);
+  };
+
+  const toggleMusic = () => {
+    if (audioRef.current) {
+      if (isMusicPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsMusicPlaying(!isMusicPlaying);
+    }
+  };
+
+  const currentDuration = usePomodoroMode 
+    ? (isBreak 
+        ? (completedSessions % 3 === 0 ? longBreakLength : shortBreakLength) * 60 
+        : pomodoroLength * 60)
+    : 25 * 60;
+  
+  const progress = ((currentDuration - timeLeft) / currentDuration) * 100;
   const completionProgress = (partsCompleted / totalParts) * 100;
 
   return (
     <div className="min-h-screen bg-[#0f0f12] text-white font-sans">
+      {/* Hidden audio element for background music */}
+      <audio 
+        ref={audioRef} 
+        loop 
+        preload="none"
+        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA"
+      />
+      
       {/* Header */}
       <div className="bg-slate-900 px-6 py-5 border-b border-slate-700">
         <div className="flex items-center justify-between">
@@ -82,7 +186,10 @@ export default function StudyDashboard() {
           </button>
           <div className="flex items-center space-x-3">
             <Calendar className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors" />
-            <Settings className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors" />
+            <Settings 
+              className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors" 
+              onClick={() => setIsSettingsOpen(true)}
+            />
             <Share className="w-5 h-5 text-gray-400 hover:text-white cursor-pointer transition-colors" />
           </div>
         </div>
@@ -106,39 +213,56 @@ export default function StudyDashboard() {
               {sessionCount}
             </span>
             <div className="flex space-x-3">
-              <Maximize2 className="w-5 h-5 cursor-pointer hover:text-orange-400 text-gray-400 transition-colors" />
-              <Music className="w-5 h-5 cursor-pointer hover:text-orange-400 text-gray-400 transition-colors" />
-              <Settings className="w-5 h-5 cursor-pointer hover:text-orange-400 text-gray-400 transition-colors" />
+              <Maximize2 
+                className="w-5 h-5 cursor-pointer hover:text-orange-400 text-gray-400 transition-colors" 
+                onClick={handleFullscreen}
+              />
+              <Music 
+                className={`w-5 h-5 cursor-pointer transition-colors ${
+                  isMusicPlaying ? 'text-orange-400' : 'text-gray-400 hover:text-orange-400'
+                }`}
+                onClick={toggleMusic}
+              />
+              <Settings 
+                className="w-5 h-5 cursor-pointer hover:text-orange-400 text-gray-400 transition-colors" 
+                onClick={() => setIsSettingsOpen(true)}
+              />
             </div>
           </div>
 
           <div className="relative flex items-center justify-center mb-8">
-            <svg viewBox="0 0 200 200" className="w-64 h-64 transform -rotate-90">
-              <circle
-                cx="100"
-                cy="100"
-                r="85"
-                stroke="#2e2e35"
-                strokeWidth="8"
-                fill="none"
-              />
-              <circle
-                cx="100"
-                cy="100"
-                r="85"
-                stroke="#f97316"
-                strokeWidth="8"
-                fill="none"
-                strokeDasharray={`${2 * Math.PI * 85}`}
-                strokeDashoffset={`${2 * Math.PI * 85 * (1 - progress / 100)}`}
-                strokeLinecap="round"
-                className="transition-all duration-1000 ease-in-out"
-              />
-            </svg>
-            <div className="absolute text-center">
-              <p className="text-sm text-gray-400 mb-1">{isPlaying ? 'focused' : 'paused'}</p>
-              <h1 className="text-4xl font-bold mb-1">{formatTime(timeLeft)}</h1>
-              <p className="text-xs text-gray-500">{formatTime(totalTimeSpent)}</p>
+            <div className="w-full max-w-[260px] md:max-w-[320px] mx-auto">
+              <svg viewBox="0 0 200 200" className="w-full h-full transform -rotate-90">
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="85"
+                  stroke="#2e2e35"
+                  strokeWidth="8"
+                  fill="none"
+                />
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="85"
+                  stroke={isBreak ? "#10b981" : "#f97316"}
+                  strokeWidth="8"
+                  fill="none"
+                  strokeDasharray={`${2 * Math.PI * 85}`}
+                  strokeDashoffset={`${2 * Math.PI * 85 * (1 - progress / 100)}`}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000 ease-in-out"
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <p className="text-sm text-gray-400 mb-1">
+                    {isBreak ? 'break' : (isPlaying ? 'focused' : 'paused')}
+                  </p>
+                  <h1 className="text-3xl md:text-4xl font-bold mb-1">{formatTime(timeLeft)}</h1>
+                  <p className="text-xs text-gray-500">{formatTime(totalTimeSpent)}</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -205,6 +329,20 @@ export default function StudyDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        pomodoroLength={pomodoroLength}
+        shortBreakLength={shortBreakLength}
+        longBreakLength={longBreakLength}
+        onPomodoroChange={setPomodoroLength}
+        onShortBreakChange={setShortBreakLength}
+        onLongBreakChange={setLongBreakLength}
+        usePomodoroMode={usePomodoroMode}
+        onPomodoroModeChange={setUsePomodoroMode}
+      />
     </div>
   );
 }
